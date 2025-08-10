@@ -1,0 +1,24 @@
+Explanation of the Data Flow
+Here’s a step-by-step breakdown of how traffic interacts with your deployed resources.
+1. Inbound Web Traffic (The Main User Flow)
+This is the path a typical user's request takes to access your application.
+DNS Lookup: A user types myapp-randompet.canadacentral.cloudapp.azure.com (or your custom domain) into their browser. The DNS system resolves this name to the static public IP address of your load balancer (azurerm_public_ip.lb_pip).
+Request Hits the Load Balancer: The user's HTTP request (on port 80) travels across the internet and arrives at the Azure Load Balancer (azurerm_lb.lb) on its public IP address.
+Load Balancing Rule is Applied: The load balancer checks its rules. The azurerm_lb_rule ("http_rule") sees the traffic is for port 80 and knows it needs to forward it to a healthy backend VM on port 80.
+Health Probe Check: To determine which VMs are "healthy," the load balancer continuously sends requests to the request_path ("/") on port 80 of each VM in the backend pool, as defined by the azurerm_lb_probe ("http_probe"). If a VM responds successfully, it's considered healthy.
+Traffic Enters the Subnet: The load balancer forwards the user's request to the private IP address of one of the healthy backend Virtual Machines. As this traffic enters the subnet (azurerm_subnet.subnet), it is checked against the rules of the Network Security Group (azurerm_network_security_group.myNSG).
+NSG Allows Traffic: The NSG's "allow-http" rule sees that the traffic is for destination port 80 from the "Internet" (the load balancer acts as the source) and allows the packet to proceed.
+VM Processes the Request: The backend VM receives the request, processes it, and prepares a response.
+2. Outbound Traffic (VMs Calling Out to the Internet)
+This is the path a backend VM takes when it needs to access the internet (e.g., to download a software update, call an external API, etc.).
+VM Initiates Connection: A VM in the subnet tries to send a packet to an external IP address on the internet.
+Subnet Routes to NAT Gateway: The azurerm_subnet_nat_gateway_association acts as a routing rule for the subnet. It dictates that all outbound traffic destined for the internet (0.0.0.0/0) should be sent to the NAT Gateway (azurerm_nat_gateway.nat_gateway).
+NAT Gateway Translates the Address: The NAT Gateway receives the packet from the VM's private IP. It then performs Network Address Translation (NAT), replacing the VM's private source IP with its own public IP (azurerm_public_ip.natgwpip).
+Traffic Goes to the Internet: The packet, now appearing to come from the NAT Gateway's public IP, travels to its destination on the internet. This ensures that the backend VMs can access the internet without having their own individual public IP addresses, which is much more secure.
+3. Inbound SSH Traffic (For Administrators)
+This special path is for administrators to connect directly to a specific VM for management.
+Admin Connects to a Specific Port: An administrator uses an SSH client to connect to the Load Balancer's public IP address, but on a specific high-numbered port (e.g., 50001).
+NAT Rule is Applied: The load balancer checks its NAT Rules. The azurerm_lb_nat_rule sees the connection attempt on port 50001 and knows this port is mapped directly to port 22 (SSH) on a specific Virtual Machine's network interface. (Note: You would associate this NAT rule with a VM's network card after provisioning the VM).
+Traffic Enters the Subnet and is Allowed by NSG: The traffic is forwarded to the VM's private IP on port 22. The NSG's "allow-ssh" rule permits this connection.
+Admin Gets SSH Access: The administrator establishes a direct SSH session with that specific VM. This prevents exposing the SSH port of every VM directly to the internet.
+31.6s
